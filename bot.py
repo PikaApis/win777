@@ -7,8 +7,8 @@ from telegram.ext import Application, CommandHandler
 from telegram.error import TimedOut, BadRequest
 
 # ✅ Telegram Bot Token and Channel ID
-BOT_TOKEN = "7713244545:AAH1Qck0DVvLTrT1CTFGR1lwevfCBGfgM8M"
-CHANNEL_ID = "@shaha_dat"
+BOT_TOKEN = "8111304045:AAFa2k-rdaZ-Ep1VsxtIIjSclgXfNKT4tOU"
+CHANNEL_ID = "@WinTk777"
 
 # ✅ Global Variables
 prediction_state = False
