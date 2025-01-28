@@ -1,40 +1,24 @@
 import requests
 import random
-import json
 import time
-import logging
 from datetime import datetime, timedelta
 from telegram.constants import ParseMode
-from telegram.ext import Application, CommandHandler, CallbackContext
+from telegram.ext import Application, CommandHandler
 from telegram.error import TimedOut, BadRequest
 
-# ✅ Load Config (Admin, Channels, Bot State)
-CONFIG_FILE = "dbw.json"
-def load_config():
-    try:
-        with open(CONFIG_FILE, "r") as file:
-            return json.load(file)
-    except FileNotFoundError:
-        return {"admin_id": None, "channels": [], "bot_running": False}
-
-def save_config(config):
-    with open(CONFIG_FILE, "w") as file:
-        json.dump(config, file, indent=4)
-
-config = load_config()
-
-# ✅ Telegram Bot Token
+# ✅ Telegram Bot Token and Channel ID
 BOT_TOKEN = "7713244545:AAH1Qck0DVvLTrT1CTFGR1lwevfCBGfgM8M"
-ADMIN_ID = config["admin_id"]
+CHANNEL_ID = "@shaha_dat"
 
 # ✅ Global Variables
-prediction_state = config["bot_running"]
+prediction_state = False
 auth_token = ""
 cookie_token = ""
 
 # ✅ GIF/Video Links
 WIN_GIF = "https://t.me/shaha_dat/265"
 LOSE_GIF = "https://t.me/shaha_dat/264"
+
 
 # ✅ Function to log in and retrieve tokens
 def login():
@@ -52,7 +36,7 @@ def login():
         print(f"✅ Login successful: Auth={auth_token}")
     except requests.exceptions.RequestException as e:
         print(f"❌ Login failed: {e}")
-        notify_admin(f"⚠️ Login Error: {e}")
+
 
 # ✅ Function to fetch game results
 def get_results():
@@ -67,32 +51,51 @@ def get_results():
         return response.json()
     except requests.exceptions.RequestException as e:
         print(f"❌ Error fetching results: {e}")
-        notify_admin(f"⚠️ Result Fetch Error: {e}")
         return None
 
-# ✅ Notify Admin on Errors
-def notify_admin(message):
-    if ADMIN_ID:
-        application.bot.send_message(chat_id=ADMIN_ID, text=message, parse_mode=ParseMode.HTML)
 
-# ✅ Send Predictions
-async def send_prediction(bot, period, prediction):
+# ✅ Function to send prediction messages with a timer
+async def send_prediction_with_timer(bot, period, prediction):
+    # ✅ Convert to Bangladesh Time (UTC+6)
     current_time = (datetime.utcnow() + timedelta(hours=6)).strftime('%H:%M:%S')
     invite_link = '<a href="https://wintk777.com/register?r_code=BTtzx94946">🔗 Invite Link</a>'
-
-    message_text = f"""
+    
+    try:
+        msg = await bot.send_message(
+            chat_id=CHANNEL_ID,
+            text=f"""
 📢 <b>WinTk777 1 Minute 🎰</b>
 🕒 <b>Time:</b> {current_time}
 🔢 <b>Period:</b> <code>{period}</code>
 🎲 <b>Bet:</b> <code>{prediction}</code>
 ⏳ <b>Ends in:</b> 00:60 seconds
 {invite_link}
-    """.strip()
+            """.strip(),
+            parse_mode=ParseMode.HTML
+        )
 
-    for channel in config["channels"]:
-        await bot.send_message(chat_id=channel, text=message_text, parse_mode=ParseMode.HTML)
+        # ✅ Update the message every 3 seconds
+        for remaining in range(57, -1, -3):
+            current_time = (datetime.utcnow() + timedelta(hours=6)).strftime('%H:%M:%S')
+            await msg.edit_text(
+                text=f"""
+📢 <b>WinTk777 1 Minute 🎰</b>
+🕒 <b>Time:</b> {current_time}
+🔢 <b>Period:</b> <code>{period}</code>
+🎲 <b>Bet:</b> <code>{prediction}</code>
+⏳ <b>Ends in:</b> 00:{remaining:02d} seconds
+{invite_link}
+                """.strip(),
+                parse_mode=ParseMode.HTML
+            )
+            time.sleep(3)
 
-# ✅ Generate Predictions
+        return msg
+    except (TimedOut, BadRequest) as e:
+        print(f"❌ Error updating message: {e}")
+
+
+# ✅ Function to generate predictions and evaluate outcomes
 async def generate_predictions(bot):
     global prediction_state
     while prediction_state:
@@ -104,8 +107,8 @@ async def generate_predictions(bot):
 
         ongoing_period = results.get("period")
         prediction = random.choice(["Big", "Small"])
-        await send_prediction(bot, ongoing_period, prediction)
-
+        msg = await send_prediction_with_timer(bot, ongoing_period, prediction)
+        
         results = get_results()
         if not results:
             continue
@@ -117,56 +120,50 @@ async def generate_predictions(bot):
                 result = "Big" if amount >= 5 else "Small"
                 outcome = "✅ Win" if result == prediction else "❌ Lose"
 
-                for channel in config["channels"]:
-                    await bot.send_message(
-                        chat_id=channel,
-                        text=f"""
+                await bot.send_message(
+                    chat_id=CHANNEL_ID,
+                    text=f"""
 🎯 <b>Prediction Result</b> 🎰
 🔢 <b>Period:</b> <code>{ongoing_period}</code>
 🎲 <b>Prediction:</b> <code>{prediction}</code>
 🏆 <b>Result:</b> <code>{result}</code>
 📊 <b>Outcome:</b> {outcome}
-                        """.strip(),
-                        parse_mode=ParseMode.HTML
-                    )
-                    gif_url = WIN_GIF if outcome == "✅ Win" else LOSE_GIF
-                    await bot.send_animation(chat_id=channel, animation=gif_url)
+                    """.strip(),
+                    parse_mode=ParseMode.HTML,
+                    reply_to_message_id=msg.message_id
+                )
+
+                gif_url = WIN_GIF if outcome == "✅ Win" else LOSE_GIF
+                await bot.send_animation(chat_id=CHANNEL_ID, animation=gif_url)
                 break
 
-# ✅ First-Time Admin Setup
-async def set_admin(update, context):
-    if update.message.text == "/pika99" and config["admin_id"] is None:
-        config["admin_id"] = update.message.chat_id
-        save_config(config)
-        await update.message.reply_text("👑 You are now the admin!")
 
-# ✅ Admin Commands
-async def add_channel(update, context):
-    if update.message.chat_id == ADMIN_ID:
-        new_channel = context.args[0]
-        config["channels"].append(new_channel)
-        save_config(config)
-        await update.message.reply_text(f"✅ Channel {new_channel} added!")
+# ✅ Start and Stop Commands
+async def start(update, context):
+    await update.message.reply_text("✅ Use /startpredictions to begin & /offpredictions to stop.")
 
-async def remove_channel(update, context):
-    if update.message.chat_id == ADMIN_ID:
-        channel = context.args[0]
-        if channel in config["channels"]:
-            config["channels"].remove(channel)
-            save_config(config)
-            await update.message.reply_text(f"❌ Channel {channel} removed!")
 
-async def show_config(update, context):
-    await update.message.reply_text(f"📋 Config: {json.dumps(config, indent=4)}")
+async def start_predictions(update, context):
+    global prediction_state
+    prediction_state = True
+    bot = context.bot
+    await generate_predictions(bot)
+
+
+async def stop_predictions(update, context):
+    global prediction_state
+    prediction_state = False
+    await update.message.reply_text("🛑 Predictions stopped!")
+
 
 # ✅ Main Function
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
-    application.add_handler(CommandHandler("pika99", set_admin))
-    application.add_handler(CommandHandler("addchannel", add_channel))
-    application.add_handler(CommandHandler("removechannel", remove_channel))
-    application.add_handler(CommandHandler("showconfig", show_config))
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("startpredictions", start_predictions))
+    application.add_handler(CommandHandler("offpredictions", stop_predictions))
     application.run_polling()
+
 
 if __name__ == "__main__":
     main()
